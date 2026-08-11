@@ -1,0 +1,5 @@
+DerivedData/
+__pycache__/
+*.pyc
+*.xcuserstate
+xcuserdata/
