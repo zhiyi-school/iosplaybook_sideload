@@ -1,8 +1,21 @@
 # Local Keyboard
 
-A minimal iOS app plus custom keyboard extension for local testing.
+Minimal iOS app with a custom keyboard extension for local testing.
 
-The keyboard records only keys tapped inside this custom keyboard after the user enables it in iOS Settings. It does not capture the system keyboard, other keyboards, background input, passwords, or hidden/global keystrokes.
+The keyboard only handles input that goes through this custom keyboard after the user enables it in iOS Settings. It does not capture the system keyboard, other keyboards, background input, password fields, hidden input, or global keystrokes.
+
+## What Is Here
+
+- `LocalKeyboard/`: SwiftUI container app.
+- `KeyboardExtension/`: custom keyboard extension.
+- `server/local_input_server.py`: local HTTP queue server.
+- `ExportOptions.plist`: development IPA export settings.
+
+The app stores keyboard events and server pairing settings in the shared App Group:
+
+```text
+group.com.example.LocalKeyboard
+```
 
 ## Xcode Setup
 
@@ -13,46 +26,229 @@ The keyboard records only keys tapped inside this custom keyboard after the user
    - `com.example.LocalKeyboard.KeyboardExtension`
 4. Register and enable the App Group on both targets:
    - `group.com.example.LocalKeyboard`
-5. Run the app on a simulator or device.
-6. Enable the keyboard in iOS Settings:
+5. Run or archive the app.
+6. Enable the keyboard on the device:
    - Settings > General > Keyboard > Keyboards > Add New Keyboard > Local Keyboard
-   - Turn on Full Access so the extension can write to the shared App Group container.
-
-Open the app again to view or clear stored events.
+   - Turn on Full Access so the extension can read the shared App Group settings and use network access.
 
 ## Remote Input Server
 
-The keyboard can poll a paired local server while the custom keyboard is visible. It only inserts queued text into the currently focused field after the user has enabled and selected this keyboard.
+Start the local server:
 
-1. Start the local server. It creates a token automatically:
+```sh
+python3 server/local_input_server.py
+```
 
-   ```sh
-   python3 server/local_input_server.py
-   ```
+Defaults:
 
-2. Open the app and change the Server URL if needed.
-   - The default comes from `KeystrokeStore.defaultServerURL` in `LocalKeyboard/KeystrokeStore.swift`.
-   - The field accepts `IP:PORT`, for example `10.132.0.13:8765`.
-   - If you omit `http://`, the app adds it automatically.
-   - Simulator example: `http://127.0.0.1:8765`
-   - Device testing example: `http://192.168.1.20:8765`
-3. The app pairs automatically.
-   - The app calls `POST /pair` on the server.
-   - It falls back to `GET /pair` for the original bundled test server.
-   - The server returns its generated token.
-   - The app saves that token into the shared App Group settings used by the keyboard extension.
-   - Pairing runs when the app opens, when it returns to the foreground, and shortly after the server URL changes.
-   - Re-pairing is allowed while the server is running.
-4. Queue text from another terminal using the token printed by the server or shown in the app:
+```text
+host: 0.0.0.0
+port: 8765
+```
 
-   ```sh
-   curl -X POST http://127.0.0.1:8765/enqueue \
-     -H "Content-Type: application/json" \
-     -d '{"token":"SERVER_TOKEN","text":"hello from server"}'
-   ```
+Useful options:
 
-5. Focus a text field on iOS, switch to Local Keyboard, and keep it visible. The extension polls `/next?token=SERVER_TOKEN` and inserts queued text with `textDocumentProxy.insertText`.
+```sh
+python3 server/local_input_server.py --host 0.0.0.0 --port 8765
+python3 server/local_input_server.py --token YOUR_TOKEN
+python3 server/local_input_server.py --enqueue-requires-token
+```
 
-You can also provide your own server token with `--token YOUR_TOKEN`.
+The server prints a token and example curl command when it starts.
 
-The keyboard does not accept arbitrary commands, does not run in the background, and does not type unless the custom keyboard is active in a focused text field.
+## App Server URL
+
+The app has a `Server IP:Port` field in the Remote Input section.
+
+Examples:
+
+```text
+10.132.0.29:8765
+http://10.132.0.29:8765
+http://127.0.0.1:8765
+```
+
+If you omit `http://`, the app adds it automatically. The source-code default is:
+
+```swift
+KeystrokeStore.defaultServerURL
+```
+
+The current default is in `LocalKeyboard/KeystrokeStore.swift`.
+
+## Pairing Flow
+
+The app pairs automatically when:
+
+- the app opens,
+- the app returns to the foreground,
+- the server URL changes.
+
+Pairing request:
+
+```http
+POST /pair
+Content-Type: application/json
+
+{"client":"LocalKeyboard"}
+```
+
+Pairing response:
+
+```json
+{"token":"SERVER_TOKEN"}
+```
+
+The app saves the token in App Group storage. The keyboard extension reads the same token before polling `/next`.
+
+## Queue Input
+
+Queue text with:
+
+```sh
+curl -X POST http://127.0.0.1:8765/enqueue \
+  -H "Content-Type: application/json" \
+  -d '{"token":"SERVER_TOKEN","text":"hello from server"}'
+```
+
+If the server was started without `--enqueue-requires-token`, the token is accepted but not required for enqueueing. The keyboard still needs the token for `/next`.
+
+Queue return/newline as a separate input:
+
+```sh
+curl -X POST http://127.0.0.1:8765/enqueue \
+  -H "Content-Type: application/json" \
+  -d '{"token":"SERVER_TOKEN","text":"\n"}'
+```
+
+## Keyboard Behavior
+
+The custom keyboard has:
+
+- number row,
+- QWERTY letter rows,
+- space,
+- delete,
+- return.
+
+Manual key taps are inserted into the active text field and logged in the app event list.
+
+Remote input is only pulled while the custom keyboard is visible. The extension starts polling in `viewWillAppear`, stops in `viewWillDisappear`, and polls roughly every `0.8` seconds:
+
+```text
+GET /next?token=SERVER_TOKEN
+```
+
+Server empty response:
+
+```json
+{"id": null, "text": null}
+```
+
+Server queued response:
+
+```json
+{"id": 1, "text": "hello"}
+```
+
+The keyboard inserts the returned `text` with `textDocumentProxy.insertText(...)`.
+
+## Server Endpoints
+
+```text
+GET  /health
+POST /pair
+POST /enqueue
+GET  /next?token=SERVER_TOKEN
+GET  /events
+POST /events
+GET  /snapshot
+```
+
+Debug snapshot:
+
+```sh
+curl http://127.0.0.1:8765/snapshot
+```
+
+This shows pairing state, queued items, delivered items, event count, request count, and unauthorized `/next` count.
+
+## Build
+
+Simulator compile check:
+
+```sh
+xcodebuild \
+  -project LocalKeyboard.xcodeproj \
+  -scheme LocalKeyboard \
+  -sdk iphonesimulator \
+  -derivedDataPath DerivedData \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```
+
+Archive for iPhone:
+
+```sh
+xcodebuild \
+  -project LocalKeyboard.xcodeproj \
+  -scheme LocalKeyboard \
+  -configuration Release \
+  -destination generic/platform=iOS \
+  -archivePath /private/tmp/LocalKeyboard.xcarchive \
+  archive
+```
+
+Export development IPA:
+
+```sh
+xcodebuild \
+  -exportArchive \
+  -archivePath /private/tmp/LocalKeyboard.xcarchive \
+  -exportPath /private/tmp/LocalKeyboardIPA \
+  -exportOptionsPlist ExportOptions.plist
+```
+
+Install on a connected iPhone:
+
+```sh
+xcrun devicectl list devices
+xcrun devicectl device install app \
+  --device DEVICE_IDENTIFIER \
+  /private/tmp/LocalKeyboardIPA/LocalKeyboard.ipa
+```
+
+## Troubleshooting
+
+`Pairing failed: App Transport Security...`
+
+- The app and extension allow arbitrary HTTP loads for local testing in their `Info.plist` files.
+- Rebuild and reinstall after changing plist values.
+
+`Pairing rejected: not_found`
+
+- The app reached a server, but the route was wrong.
+- The field should be only `IP:PORT`, not `IP:PORT/pair`.
+- Confirm the server supports `POST /pair`.
+
+`Remote input rejected`
+
+- The keyboard reached `/next`, but the response was not a valid `200` JSON response.
+- Common causes: token mismatch, wrong server, `401 unauthorized`, or non-JSON response.
+- Check:
+
+```sh
+curl "http://127.0.0.1:8765/next?token=SERVER_TOKEN"
+curl http://127.0.0.1:8765/snapshot
+```
+
+Keyboard does not poll
+
+- The custom keyboard must be visible.
+- Full Access must be enabled.
+- Polling stops when the keyboard disappears or another keyboard is selected.
+
+Return/submit behavior
+
+- The keyboard can insert `\n`, but iOS does not expose a universal submit/search/go API to custom keyboards.
+- Some apps treat inserted newlines as spaces.
