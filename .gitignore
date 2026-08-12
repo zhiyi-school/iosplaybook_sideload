@@ -96,3 +96,9 @@ compose.override.yaml
 # Misc
 .DS_Store
 *.bak
+
+# Xcode
+*.xcworkspace
+*.xcuserdatad
+*.xcuserstate
+xcuserdata/
