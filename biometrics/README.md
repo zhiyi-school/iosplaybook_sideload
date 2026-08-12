@@ -22,13 +22,40 @@ The secure design is to bind the sensitive action to a protected cryptographic o
 ## Project Layout
 
 ```text
-BiometricBypassDemo/              iOS SwiftUI demo app
-scripts/force-biometric-success.js  Frida hook that forces biometric success
-ThirdParty/Frida/FridaGadget.config Gadget listener config used by optional flows
-docs/                            Technical setup and troubleshooting notes
+BiometricBypassDemo/                iOS SwiftUI demo app
+scripts/force-biometric-success.js    Frida hook that forces biometric success
+ThirdParty/Frida/FridaGadget.dylib    Frida Gadget binary for jailed-iOS flows
+ThirdParty/Frida/FridaGadget.config   Gadget listener config
+docs/                              Technical setup and troubleshooting notes
 ```
 
-Frida Gadget is not linked into the main Xcode target by default. The repository keeps a Gadget config for the optional jailed-iOS and IPA workflows, but the actual Gadget dylib should be downloaded locally and is ignored by Git.
+Frida Gadget is not linked into the main Xcode target by default. The repository includes a Gadget binary and config for the optional jailed-iOS and IPA workflows. The checked-in Gadget copy is for Frida `17.9.10`; your local `frida-tools` version should match it, or you should replace the dylib with the matching Gadget release.
+
+## Obtaining Frida Gadget
+
+This repo currently includes `ThirdParty/Frida/FridaGadget.dylib`, which is intended to match Frida `17.9.10`.
+
+Check your installed Frida version:
+
+```sh
+python3 -m pip install --user frida-tools
+frida --version
+```
+
+If your local Frida version is not `17.9.10`, download the matching Gadget asset from the Frida release with the same version as your `frida --version` output:
+
+```text
+frida-gadget-VERSION-ios-universal.dylib.xz
+```
+
+Decompress it, then replace the repo copy:
+
+```sh
+mkdir -p ThirdParty/Frida
+cp path/to/gadget-ios.dylib ThirdParty/Frida/FridaGadget.dylib
+```
+
+The Frida CLI and Gadget dylib should be kept on the same version. Version mismatches can cause attach failures, crashes, or confusing connection errors on jailed iOS.
 
 ## Quick Start
 
